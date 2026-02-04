@@ -1,0 +1,1128 @@
+# Cascade Rules
+
+## Testing Policy
+-   **Mandatory Testing**: Every new feature MUST have a corresponding test (Feature or Unit) created and run before being marked as complete.
+-   **Test Coverage**: Tests should cover happy paths and critical edge cases (e.g., validation errors).
+-   **Legacy Features**: When revisiting legacy code, valid tests should be added if missing.
+
+## Data & Seeding
+-   **Realistic Data**: Seeders and Factories must use realistic data (names, phone numbers, message content) relevant to the SMS industry, not `Lorem Ipsum`.
+-   **Demo State**: The `DatabaseSeeder` should spin up a fully populated "Demo" environment with:
+    -   A Super Admin user.
+    -   A Tenant Admin with credits and transaction history.
+    -   Sample Contacts and Groups.
+    -   Approved Sender IDs.
+    -   Sample Message History (Sent, Scheduled, Failed).
+
+## Code Quality
+-   **Linting**: Run linters/fixers before committing.
+-   **Strict Typing**: Use strict typing where possible in PHP.
+-   **Design System**: All UI changes must adhere strictly to `DESIGN_SYSTEM.md`.
+
+# CASCADE RULES - Development Guidelines
+
+**C**oding **A**rchitecture **S**tandards **C**onsistency **A**nd **D**evelopment **E**xcellence
+
+---
+
+## 📖 Table of Contents
+
+1. [Core Principles](#core-principles)
+2. [Code Organization](#code-organization)
+3. [Database & Models](#database--models)
+4. [Testing Requirements](#testing-requirements)
+5. [Security Guidelines](#security-guidelines)
+6. [Performance & Optimization](#performance--optimization)
+7. [Multi-Tenancy Rules](#multi-tenancy-rules)
+8. [Livewire Best Practices](#livewire-best-practices)
+9. [Configuration Management](#configuration-management)
+10. [Error Handling](#error-handling)
+11. [API & Third-Party Services](#api--third-party-services)
+12. [Git Workflow](#git-workflow)
+
+---
+
+## 🎯 Core Principles
+
+### 1. KISS (Keep It Simple, Stupid)
+
+**Rule:** Prioritize simplicity over cleverness.
+
+```php
+// ❌ BAD: Overly clever, hard to understand
+$result = array_reduce($items, fn($c, $i) => $c + ($i['active'] ?? 0 ? $i['value'] : 0), 0);
+
+// ✅ GOOD: Clear and readable
+$total = 0;
+foreach ($items as $item) {
+    if ($item['active'] ?? false) {
+        $total += $item['value'];
+    }
+}
+```
+
+**Application:**
+- Write code that junior developers can understand
+- Avoid unnecessary abstractions
+- Use descriptive variable names
+- Break complex logic into smaller, named methods
+
+---
+
+### 2. DRY (Don't Repeat Yourself)
+
+**Rule:** Every piece of knowledge should have a single, authoritative representation.
+
+```php
+// ❌ BAD: Repeated logic
+if ($user->role === 'tenant_admin' || $user->role === 'super_admin') {
+    // Allow action
+}
+
+// Elsewhere in code
+if ($user->role === 'tenant_admin' || $user->role === 'super_admin') {
+    // Allow action
+}
+
+// ✅ GOOD: Centralized logic
+// In User model
+public function isAdmin(): bool
+{
+    return $this->role->isAdmin(); // Using enum method
+}
+
+// Usage
+if ($user->isAdmin()) {
+    // Allow action
+}
+```
+
+**Application:**
+- Extract repeated logic into methods/services
+- Use model scopes for common queries
+- Create traits for shared functionality
+- Use form request classes for validation rules
+
+---
+
+### 3. YAGNI (You Aren't Gonna Need It)
+
+**Rule:** Don't implement features until they're actually needed.
+
+```php
+// ❌ BAD: Building features "just in case"
+class Message extends Model
+{
+    // We might need video messages in the future...
+    public function videoUrl(): ?string { /* ... */ }
+    
+    // We might need voice messages...
+    public function audioUrl(): ?string { /* ... */ }
+}
+
+// ✅ GOOD: Only what's needed now
+class Message extends Model
+{
+    public function content(): string
+    {
+        return $this->content;
+    }
+}
+```
+
+**Application:**
+- Build only specified features
+- Don't add "future-proofing" abstractions
+- Keep database schema minimal
+- Add complexity only when requirements demand it
+
+---
+
+## 🗂 Code Organization
+
+### Service Layer Pattern
+
+**Rule:** Business logic belongs in service classes, not controllers or models.
+
+```php
+// ❌ BAD: Business logic in controller
+class MessageController extends Controller
+{
+    public function send(Request $request)
+    {
+        $tenant = auth()->user()->tenant;
+        
+        if ($tenant->sms_credits < count($request->recipients)) {
+            return back()->with('error', 'Insufficient credits');
+        }
+        
+        foreach ($request->recipients as $recipient) {
+            $provider = $this->getProvider($recipient);
+            $provider->send(/* ... */);
+        }
+        
+        $tenant->decrement('sms_credits', count($request->recipients));
+    }
+}
+
+// ✅ GOOD: Business logic in service
+class MessageService
+{
+    public function sendBulkMessage(Tenant $tenant, array $recipients, string $content): void
+    {
+        $this->validateCredits($tenant, count($recipients));
+        
+        foreach ($recipients as $recipient) {
+            $this->sendToRecipient($recipient, $content);
+        }
+        
+        $this->deductCredits($tenant, count($recipients));
+    }
+    
+    private function validateCredits(Tenant $tenant, int $count): void
+    {
+        if ($tenant->sms_credits < $count) {
+            throw new InsufficientCreditsException();
+        }
+    }
+    
+    // ... other methods
+}
+
+// Controller
+class MessageController extends Controller
+{
+    public function send(Request $request, MessageService $messageService)
+    {
+        $messageService->sendBulkMessage(
+            auth()->user()->tenant,
+            $request->recipients,
+            $request->content
+        );
+        
+        return back()->with('success', 'Messages sent!');
+    }
+}
+```
+
+**Application:**
+- Create service classes in `app/Services/`
+- One service per domain (MessageService, PaymentService, ContactService)
+- Keep controllers thin (validate, call service, return response)
+- Services are testable in isolation
+
+---
+
+### Action Classes
+
+**Rule:** For single-responsibility operations, use action classes.
+
+```php
+// app/Actions/Messages/CreateMessageTemplate.php
+class CreateMessageTemplate
+{
+    public function execute(Tenant $tenant, array $data): MessageTemplate
+    {
+        return MessageTemplate::create([
+            'tenant_id' => $tenant->id,
+            'name' => $data['name'],
+            'content' => $data['content'],
+        ]);
+    }
+}
+
+// Usage in Livewire component
+class CreateTemplate extends Component
+{
+    public function save()
+    {
+        $template = app(CreateMessageTemplate::class)->execute(
+            $this->tenant,
+            $this->form->getState()
+        );
+        
+        $this->redirect(route('templates.index'));
+    }
+}
+```
+
+---
+
+## 🗄 Database & Models
+
+### Enum Usage
+
+**Rule:** Use PHP enums for database columns with fixed values. Never use database ENUM types.
+
+```php
+// ❌ BAD: Database ENUM in migration
+Schema::create('users', function (Blueprint $table) {
+    $table->enum('role', ['super_admin', 'tenant_admin', 'user']);
+});
+
+// ✅ GOOD: String column + PHP Enum
+// Migration
+Schema::create('users', function (Blueprint $table) {
+    $table->string('role');
+});
+
+// Enum
+namespace App\Enums;
+
+enum UserRole: string
+{
+    case SUPER_ADMIN = 'super_admin';
+    case TENANT_ADMIN = 'tenant_admin';
+    case USER = 'user';
+    
+    public function isAdmin(): bool
+    {
+        return in_array($this, [self::SUPER_ADMIN, self::TENANT_ADMIN]);
+    }
+    
+    public function label(): string
+    {
+        return match($this) {
+            self::SUPER_ADMIN => 'Super Administrator',
+            self::TENANT_ADMIN => 'Tenant Administrator',
+            self::USER => 'User',
+        };
+    }
+}
+
+// Model
+class User extends Model
+{
+    protected $casts = [
+        'role' => UserRole::class,
+    ];
+}
+
+// Usage
+if ($user->role === UserRole::SUPER_ADMIN) {
+    // Do something
+}
+
+if ($user->role->isAdmin()) {
+    // Admin-specific logic
+}
+```
+
+**Application:**
+- Create enums in `app/Enums/`
+- Add helper methods to enums (labels, checks, etc.)
+- Cast enum properties in models
+- Use enums in validation rules
+
+---
+
+### Global Scopes for Multi-Tenancy
+
+**Rule:** All tenant-scoped models MUST use a global scope.
+
+```php
+// app/Traits/TenantScoped.php
+trait TenantScoped
+{
+    protected static function bootTenantScoped(): void
+    {
+        static::addGlobalScope('tenant', function ($query) {
+            if (auth()->check() && auth()->user()->tenant_id) {
+                $query->where('tenant_id', auth()->user()->tenant_id);
+            }
+        });
+        
+        static::creating(function ($model) {
+            if (auth()->check() && !$model->tenant_id) {
+                $model->tenant_id = auth()->user()->tenant_id;
+            }
+        });
+    }
+}
+
+// Usage in models
+class Contact extends Model
+{
+    use TenantScoped;
+    
+    // tenant_id automatically scoped
+}
+
+// Query automatically scoped
+Contact::all(); // Only returns contacts for current user's tenant
+
+// Super admin can bypass
+Contact::withoutGlobalScope('tenant')->get(); // All contacts
+```
+
+**Critical Rules:**
+- NEVER write queries without tenant scoping (except for super admin)
+- Use `TenantScoped` trait on: contacts, groups, messages, templates, sender_ids
+- Super admin can use `withoutGlobalScope('tenant')` when needed
+- Test tenant isolation in every feature test
+
+---
+
+### Model Relationships
+
+**Rule:** Define all relationships explicitly in models.
+
+```php
+class Tenant extends Model
+{
+    public function users(): HasMany
+    {
+        return $this->hasMany(User::class);
+    }
+    
+    public function contacts(): HasMany
+    {
+        return $this->hasMany(Contact::class);
+    }
+    
+    public function messages(): HasMany
+    {
+        return $this->hasMany(Message::class);
+    }
+}
+
+class Message extends Model
+{
+    use TenantScoped;
+    
+    public function tenant(): BelongsTo
+    {
+        return $this->belongsTo(Tenant::class);
+    }
+    
+    public function recipients(): HasMany
+    {
+        return $this->hasMany(MessageRecipient::class);
+    }
+    
+    public function template(): BelongsTo
+    {
+        return $this->belongsTo(MessageTemplate::class, 'template_id');
+    }
+    
+    public function senderId(): BelongsTo
+    {
+        return $this->belongsTo(SenderId::class, 'sender_id');
+    }
+}
+```
+
+---
+
+### Database Indexes
+
+**Rule:** Add indexes for all foreign keys and frequently queried columns.
+
+```php
+Schema::create('messages', function (Blueprint $table) {
+    $table->id();
+    $table->foreignId('tenant_id')->constrained()->cascadeOnDelete();
+    $table->foreignId('template_id')->nullable()->constrained('message_templates');
+    $table->foreignId('sender_id')->constrained('sender_ids');
+    $table->string('channel'); // sms, whatsapp, both
+    $table->string('status');
+    $table->timestamp('sent_at')->nullable();
+    $table->timestamps();
+    
+    // Indexes
+    $table->index('tenant_id'); // For tenant scoping
+    $table->index(['tenant_id', 'status']); // Composite index for filtering
+    $table->index('sent_at'); // For analytics queries
+});
+```
+
+**Index Guidelines:**
+- Index all foreign keys
+- Create composite indexes for common filter combinations
+- Index columns used in WHERE, ORDER BY, GROUP BY
+- Monitor slow queries and add indexes as needed
+
+---
+
+## 🧪 Testing Requirements
+
+### Test Every Component
+
+**Rule:** Every Livewire component, service, action, and model MUST have tests.
+
+```php
+// tests/Feature/Livewire/CreateContactTest.php
+use App\Livewire\Contacts\CreateContact;
+use App\Models\{Tenant, User, Contact};
+use function Pest\Laravel\{actingAs};
+use function Pest\Livewire\livewire;
+
+beforeEach(function () {
+    $this->tenant = Tenant::factory()->create();
+    $this->user = User::factory()->for($this->tenant)->create();
+    actingAs($this->user);
+});
+
+test('can create contact', function () {
+    livewire(CreateContact::class)
+        ->set('name', 'John Doe')
+        ->set('phone', '+233201234567')
+        ->call('save')
+        ->assertHasNoErrors();
+    
+    expect(Contact::where('name', 'John Doe')->exists())->toBeTrue();
+});
+
+test('validates phone number format', function () {
+    livewire(CreateContact::class)
+        ->set('name', 'John Doe')
+        ->set('phone', 'invalid')
+        ->call('save')
+        ->assertHasErrors(['phone']);
+});
+
+test('creates contact scoped to tenant', function () {
+    $otherTenant = Tenant::factory()->create();
+    
+    livewire(CreateContact::class)
+        ->set('name', 'John Doe')
+        ->set('phone', '+233201234567')
+        ->call('save');
+    
+    $contact = Contact::where('name', 'John Doe')->first();
+    
+    expect($contact->tenant_id)->toBe($this->tenant->id)
+        ->and($contact->tenant_id)->not->toBe($otherTenant->id);
+});
+```
+
+**Testing Checklist:**
+- [ ] Feature tests for all Livewire components
+- [ ] Unit tests for services and actions
+- [ ] Test happy path AND error cases
+- [ ] Test authorization (who can do what)
+- [ ] Test tenant isolation (data doesn't leak)
+- [ ] Test validation rules
+- [ ] Test database constraints
+
+---
+
+### Test Naming Convention
+
+```php
+// Feature tests
+test('admin can create sender id', function () { /* ... */ });
+test('user cannot delete other users sender id', function () { /* ... */ });
+test('message is queued when sending to multiple recipients', function () { /* ... */ });
+
+// Unit tests
+test('message service calculates credit cost correctly', function () { /* ... */ });
+test('enum returns correct label', function () { /* ... */ });
+```
+
+---
+
+## 🔒 Security Guidelines
+
+### Never Trust User Input
+
+**Rule:** Always validate and sanitize user input.
+
+```php
+// ❌ BAD: No validation
+public function send(Request $request)
+{
+    Message::create($request->all());
+}
+
+// ✅ GOOD: Validated request
+class SendMessageRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user()->can('send-messages');
+    }
+    
+    public function rules(): array
+    {
+        return [
+            'recipients' => ['required', 'array', 'min:1'],
+            'recipients.*' => ['required', 'string', 'regex:/^\+?[1-9]\d{1,14}$/'],
+            'content' => ['required', 'string', 'max:1000'],
+            'sender_id' => ['required', 'exists:sender_ids,id'],
+            'channel' => ['required', Rule::in(['sms', 'whatsapp', 'both'])],
+        ];
+    }
+}
+
+public function send(SendMessageRequest $request)
+{
+    // $request->validated() is safe to use
+}
+```
+
+---
+
+### Authorization Policies
+
+**Rule:** Use Laravel policies for all authorization checks.
+
+```php
+// app/Policies/SenderIdPolicy.php
+class SenderIdPolicy
+{
+    public function delete(User $user, SenderId $senderId): bool
+    {
+        // Super admin can delete anything
+        if ($user->role === UserRole::SUPER_ADMIN) {
+            return true;
+        }
+        
+        // Users can only delete sender IDs they created
+        return $senderId->created_by_user_id === $user->id;
+    }
+}
+
+// Usage in Livewire
+public function deleteSenderId(SenderId $senderId)
+{
+    $this->authorize('delete', $senderId);
+    
+    $senderId->delete();
+}
+```
+
+---
+
+### SQL Injection Prevention
+
+**Rule:** Always use parameter binding. NEVER concatenate user input into queries.
+
+```php
+// ❌ EXTREMELY BAD: SQL injection vulnerability
+$users = DB::select("SELECT * FROM users WHERE email = '{$request->email}'");
+
+// ✅ GOOD: Parameter binding
+$users = DB::select('SELECT * FROM users WHERE email = ?', [$request->email]);
+
+// ✅ BETTER: Use Eloquent
+$users = User::where('email', $request->email)->get();
+```
+
+---
+
+## ⚡ Performance & Optimization
+
+### Caching Strategy
+
+**Rule:** Cache expensive queries and frequently accessed data.
+
+```php
+// app/Services/PlanLimitService.php
+class PlanLimitService
+{
+    public function getSenderIdLimit(Tenant $tenant): int
+    {
+        return Cache::remember(
+            "tenant.{$tenant->id}.sender_id_limit",
+            now()->addHours(24),
+            fn () => config("plans.{$tenant->plan_type}.sender_ids")
+        );
+    }
+    
+    public function clearTenantCache(Tenant $tenant): void
+    {
+        Cache::forget("tenant.{$tenant->id}.sender_id_limit");
+    }
+}
+
+// Clear cache when plan changes
+class Tenant extends Model
+{
+    protected static function booted(): void
+    {
+        static::updated(function (Tenant $tenant) {
+            if ($tenant->wasChanged('plan_type')) {
+                app(PlanLimitService::class)->clearTenantCache($tenant);
+            }
+        });
+    }
+}
+```
+
+**What to Cache:**
+- Tenant settings and configuration
+- Plan limits
+- User permissions
+- Analytics aggregates (daily summaries)
+- Message templates (rarely change)
+- Sender IDs list
+
+**Cache Invalidation:**
+- Clear cache when underlying data changes
+- Use tags for grouped cache clearing
+- Set appropriate TTL (time-to-live)
+
+---
+
+### Eager Loading
+
+**Rule:** Always eager load relationships to avoid N+1 queries.
+
+```php
+// ❌ BAD: N+1 query problem
+$messages = Message::all();
+foreach ($messages as $message) {
+    echo $message->tenant->name; // Queries database for each message
+}
+
+// ✅ GOOD: Eager loading
+$messages = Message::with('tenant')->get();
+foreach ($messages as $message) {
+    echo $message->tenant->name; // No additional queries
+}
+
+// ✅ BETTER: Specific columns
+$messages = Message::with('tenant:id,name')->get();
+```
+
+---
+
+### Queue Long-Running Tasks
+
+**Rule:** Never block HTTP requests with slow operations. Use queues.
+
+```php
+// ❌ BAD: Synchronous sending (blocks request)
+public function sendBulkMessage(array $recipients, string $content)
+{
+    foreach ($recipients as $recipient) {
+        $this->smsProvider->send($recipient, $content); // Slow!
+    }
+}
+
+// ✅ GOOD: Queue the job
+public function sendBulkMessage(array $recipients, string $content)
+{
+    SendBulkMessageJob::dispatch($recipients, $content);
+}
+
+// app/Jobs/SendBulkMessageJob.php
+class SendBulkMessageJob implements ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    
+    public function handle(MessageService $messageService): void
+    {
+        foreach ($this->recipients as $recipient) {
+            $messageService->sendToRecipient($recipient, $this->content);
+        }
+    }
+}
+```
+
+**Queue These Operations:**
+- Sending messages (SMS/WhatsApp)
+- Importing large CSV files
+- Generating reports
+- Processing payments
+- Sending emails
+
+---
+
+## 🏢 Multi-Tenancy Rules
+
+### Tenant Isolation Checklist
+
+**Rule:** Tenant data MUST be isolated. No data leakage allowed.
+
+```php
+// ✅ Enforce in middleware
+class EnsureTenantScoped
+{
+    public function handle(Request $request, Closure $next)
+    {
+        if (auth()->check() && auth()->user()->role !== UserRole::SUPER_ADMIN) {
+            // Force tenant context
+            app()->instance('tenant', auth()->user()->tenant);
+        }
+        
+        return $next($request);
+    }
+}
+
+// ✅ Test tenant isolation
+test('user cannot see other tenants contacts', function () {
+    $tenant1 = Tenant::factory()->create();
+    $tenant2 = Tenant::factory()->create();
+    
+    $user1 = User::factory()->for($tenant1)->create();
+    Contact::factory()->for($tenant1)->create(['name' => 'Tenant 1 Contact']);
+    
+    Contact::factory()->for($tenant2)->create(['name' => 'Tenant 2 Contact']);
+    
+    actingAs($user1);
+    
+    $contacts = Contact::all();
+    
+    expect($contacts)->toHaveCount(1)
+        ->and($contacts->first()->name)->toBe('Tenant 1 Contact');
+});
+```
+
+**Tenant Isolation Rules:**
+1. Use `TenantScoped` trait on all tenant-owned models
+2. Test that users cannot access other tenants' data
+3. Super admin explicitly uses `withoutGlobalScope('tenant')` when needed
+4. Add tenant_id to all relevant database tables
+5. Foreign keys should cascade on tenant deletion
+
+---
+
+## 🎨 Livewire Best Practices
+
+### Component Organization
+
+**Rule:** One component = one responsibility.
+**Rule:** Use **Standard Livewire Classes** (`php artisan make:livewire`). **DO NOT use Laravel Volt**.
+
+```php
+// ❌ BAD: Volt Functional API
+use function Livewire\Volt\{state};
+state(['count' => 0]);
+
+// ❌ BAD: Volt Class API
+new class extends Component { ... }
+
+// ✅ GOOD: Standard Class Component
+namespace App\Livewire;
+use Livewire\Component;
+
+class Counter extends Component
+{
+    public $count = 0;
+    
+    public function render()
+    {
+        return view('livewire.counter');
+    }
+}
+```
+
+```php
+// ❌ BAD: God component doing everything
+class ManageContacts extends Component
+{
+    public $contacts;
+    public $groups;
+    public $showCreateForm = false;
+    public $showImportForm = false;
+    public $editingContact;
+    
+    // 500+ lines of code...
+}
+
+// ✅ GOOD: Separate components
+class ContactList extends Component { /* ... */ }
+class CreateContact extends Component { /* ... */ }
+class EditContact extends Component { /* ... */ }
+class ImportContacts extends Component { /* ... */ }
+```
+
+---
+
+### Form Validation
+
+**Rule:** Use Livewire's form objects for complex forms.
+
+```php
+use Livewire\Form;
+
+class ContactForm extends Form
+{
+    public string $name = '';
+    public string $phone = '';
+    public ?int $group_id = null;
+    
+    public function rules(): array
+    {
+        return [
+            'name' => ['required', 'string', 'max:255'],
+            'phone' => ['required', 'string', 'regex:/^\+?[1-9]\d{1,14}$/'],
+            'group_id' => ['nullable', 'exists:groups,id'],
+        ];
+    }
+    
+    public function save(): Contact
+    {
+        $this->validate();
+        
+        return Contact::create($this->all());
+    }
+}
+
+// In component
+class CreateContact extends Component
+{
+    public ContactForm $form;
+    
+    public function save()
+    {
+        $this->form->save();
+        $this->redirect(route('contacts.index'));
+    }
+}
+```
+
+---
+
+## ⚙️ Configuration Management
+
+**Rule:** Never use the `env()` helper directly outside of configuration files. Always use the `config()` helper.
+
+```php
+// ❌ BAD: Direct env() call in logic
+$apiKey = env('STRIPE_SECRET');
+
+// ✅ GOOD: Use config() in logic
+$apiKey = config('services.stripe.secret');
+
+// ✅ GOOD: Direct env() ONLY in config files (e.g., config/services.php)
+'stripe' => [
+    'secret' => env('STRIPE_SECRET'),
+],
+```
+
+**Application:**
+- All environment variables must have a corresponding entry in a configuration file (e.g., `config/services.php`, `config/app.php`).
+- Access configuration values using `config('file.key.subkey')` throughout the application.
+- This ensures configuration can be safely cached (`php artisan config:cache`) in production.
+
+### Environment Variables
+
+**Rule:** NEVER use `env()` directly in code. Always use `config()`.
+
+```php
+// ❌ BAD: env() in code (not cached)
+$apiKey = env('SMS_TWILIO_SID');
+
+// ✅ GOOD: config() with fallback
+$apiKey = config('services.twilio.sid');
+
+// config/services.php
+return [
+    'twilio' => [
+        'sid' => env('SMS_TWILIO_SID'),
+        'token' => env('SMS_TWILIO_AUTH_TOKEN'),
+        'from' => env('SMS_TWILIO_FROM'),
+    ],
+];
+```
+
+**Why?**
+- `config:cache` caches config files (faster)
+- `env()` returns `null` when config is cached
+- Centralized configuration is easier to manage
+
+---
+
+### Update .env.example
+
+**Rule:** Every new environment variable MUST be added to `.env.example`.
+
+```env
+# When adding Hubtel provider
+# 1. Update .env
+SMS_HUBTEL_ENABLED=true
+SMS_HUBTEL_CLIENT_ID=your_client_id
+SMS_HUBTEL_CLIENT_SECRET=your_secret
+
+# 2. Update .env.example (same day!)
+SMS_HUBTEL_ENABLED=false
+SMS_HUBTEL_CLIENT_ID=
+SMS_HUBTEL_CLIENT_SECRET=
+
+# 3. Update config/services.php
+'hubtel' => [
+    'enabled' => env('SMS_HUBTEL_ENABLED', false),
+    'client_id' => env('SMS_HUBTEL_CLIENT_ID'),
+    'client_secret' => env('SMS_HUBTEL_CLIENT_SECRET'),
+],
+```
+
+---
+
+## 🚨 Error Handling
+
+### Exceptions
+
+**Rule:** Use custom exceptions for domain-specific errors.
+
+```php
+// app/Exceptions/InsufficientCreditsException.php
+class InsufficientCreditsException extends Exception
+{
+    public function __construct(int $required, int $available)
+    {
+        parent::__construct(
+            "Insufficient credits. Required: {$required}, Available: {$available}"
+        );
+    }
+    
+    public function render($request)
+    {
+        return back()->with('error', $this->getMessage());
+    }
+}
+
+// Usage
+if ($tenant->sms_credits < $recipientCount) {
+    throw new InsufficientCreditsException($recipientCount, $tenant->sms_credits);
+}
+```
+
+---
+
+### Logging
+
+**Rule:** Log important events and errors.
+
+```php
+use Illuminate\Support\Facades\Log;
+
+// Log message sending
+Log::info('Bulk message sent', [
+    'tenant_id' => $tenant->id,
+    'recipient_count' => count($recipients),
+    'channel' => $channel,
+]);
+
+// Log errors
+try {
+    $provider->send($message);
+} catch (Exception $e) {
+    Log::error('Message sending failed', [
+        'tenant_id' => $tenant->id,
+        'recipient' => $recipient,
+        'error' => $e->getMessage(),
+        'trace' => $e->getTraceAsString(),
+    ]);
+    
+    throw $e;
+}
+```
+
+---
+
+## 🔌 API & Third-Party Services
+
+### Provider Abstraction
+
+**Rule:** Abstract third-party services behind interfaces.
+
+```php
+// app/Contracts/SMSProvider.php
+interface SMSProvider
+{
+    public function send(string $to, string $message, string $from): bool;
+    public function getDeliveryStatus(string $messageId): string;
+}
+
+// app/Services/SMS/TwilioProvider.php
+class TwilioProvider implements SMSProvider
+{
+    public function send(string $to, string $message, string $from): bool
+    {
+        // Twilio-specific implementation
+    }
+}
+
+// app/Services/SMS/HubtelProvider.php
+class HubtelProvider implements SMSProvider
+{
+    public function send(string $to, string $message, string $from): bool
+    {
+        // Hubtel-specific implementation
+    }
+}
+
+// app/Services/MessageService.php
+class MessageService
+{
+    private function getProvider(string $countryCode): SMSProvider
+    {
+        return match($countryCode) {
+            'GH' => app(HubtelProvider::class),
+            default => app(TwilioProvider::class),
+        };
+    }
+}
+```
+
+**Benefits:**
+- Easy to switch providers
+- Easy to test (mock the interface)
+- Can add new providers without changing existing code
+
+---
+
+## 📝 Git Workflow
+
+### Commit Messages
+
+**Rule:** Use conventional commit format.
+
+```bash
+# Format: <type>(<scope>): <subject>
+
+feat(messages): add scheduled message sending
+fix(contacts): resolve CSV import validation error
+refactor(auth): extract login logic to service
+test(messages): add delivery status tracking tests
+docs(readme): update installation instructions
+chore(deps): update Laravel to 12.1
+```
+
+**Types:**
+- `feat`: New feature
+- `fix`: Bug fix
+- `refactor`: Code change that neither fixes a bug nor adds a feature
+- `test`: Adding or updating tests
+- `docs`: Documentation changes
+- `chore`: Maintenance tasks
+
+---
+
+### Branch Naming
+
+```bash
+feature/scheduled-messages
+fix/csv-import-validation
+refactor/message-service
+test/tenant-isolation
+```
+
+---
+
+## 📋 Checklist: Before Committing Code
+
+- [ ] Code follows KISS, DRY, YAGNI principles
+- [ ] All new features have tests
+- [ ] Tenant isolation is enforced and tested
+- [ ] Database migrations use string columns (not enum)
+- [ ] PHP enums created for fixed values
+- [ ] Indexes added to foreign keys and query columns
+- [ ] Services/actions handle business logic (not controllers)
+- [ ] Authorization policies defined
+- [ ] Input validation implemented
+- [ ] Long-running tasks are queued
+- [ ] N+1 queries prevented (eager loading)
+- [ ] Expensive queries are cached
+- [ ] New `.env` variables added to `.env.example` and `config/`
+- [ ] Error handling and logging implemented
+- [ ] Code is readable and well-commented
+- [ ] Git commit message follows convention
+
+---
+
+**Remember:** Code is read more often than it's written. Prioritize clarity and maintainability over cleverness.
