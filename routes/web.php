@@ -53,6 +53,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         // SMS Providers
         Route::get('/providers', [\App\Http\Controllers\Admin\ProviderController::class, 'index'])->name('providers.index');
         Route::post('/providers', [\App\Http\Controllers\Admin\ProviderController::class, 'store'])->name('providers.store');
+        Route::post('/providers/sync-balances', [\App\Http\Controllers\Admin\ProviderController::class, 'syncBalances'])->name('providers.sync-balances');
         Route::post('/providers/{provider}/toggle', [\App\Http\Controllers\Admin\ProviderController::class, 'toggle'])->name('providers.toggle');
         Route::delete('/providers/{provider}', [\App\Http\Controllers\Admin\ProviderController::class, 'destroy'])->name('providers.destroy');
         

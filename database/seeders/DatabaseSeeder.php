@@ -19,6 +19,9 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        // 0. Create Super Admin
+        $this->call(AdminUserSeeder::class);
+
         // 1. Create Demo Tenant
         $tenant = Tenant::create([
             'name' => 'Acme Marketing Ltd',

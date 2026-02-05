@@ -39,9 +39,19 @@
         <!-- Provider Balances -->
         @if(isset($providerBalances) && count($providerBalances) > 0)
             <div class="mb-8">
-                <h3 class="font-bold text-zinc-900 mb-4 flex items-center gap-2">
-                    <i data-lucide="wallet" class="w-5 h-5 text-indigo-600"></i>
-                    Provider Balances
+                <h3 class="font-bold text-zinc-900 mb-4 flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="wallet" class="w-5 h-5 text-indigo-600"></i>
+                        Provider Balances
+                    </div>
+                    <form action="{{ route('admin.providers.sync-balances') }}" method="POST">
+                        @csrf
+                        <button type="submit"
+                            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors">
+                            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                            Sync Credits
+                        </button>
+                    </form>
                 </h3>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     @foreach($providerBalances as $provider)
@@ -148,7 +158,8 @@
                                             credits</div>
                                     </td>
                                     <td class="px-6 py-3 text-right text-zinc-500 text-xs">
-                                        {{ $tenant->created_at->diffForHumans() }}</td>
+                                        {{ $tenant->created_at->diffForHumans() }}
+                                    </td>
                                     <td class="px-6 py-3 text-right">
                                         <a href="{{ route('admin.tenants.impersonate', $tenant->id) }}"
                                             class="text-xs font-bold text-indigo-600 hover:text-indigo-700">Login as</a>
@@ -167,15 +178,15 @@
             <!-- Simple CSS Bar Chart for Messages -->
             <div class="flex items-end gap-1 h-32 w-full">
                 @foreach($chartData['messages'] as $count)
-                    @php 
-                                            $max = max($chartData['messages']) ?: 1;
-                        $height = ($count / $max) * 100;
-                    @endphp
+                        @php 
+                                                                    $max = max($chartData['messages']) ?: 1;
+                            $height = ($count / $max) * 100;
+                        @endphp
                     <div class="flex-1 bg-indigo-100 hover:bg-indigo-200 rounded-t-sm relative group" style="height: {{ max($height, 5) }}%;">
                         <div class="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-zinc-800 text-white text-[10px] py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap">
-                                {{ $count }} msgs
-                            </div>
-                        </div>
+                                        {{ $count }} msgs
+                                    </div>
+                                </div>
                 @endforeach
             </div>
             <div class="flex justify-between text-[10px] text-zinc-400 mt-2">

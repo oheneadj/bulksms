@@ -66,4 +66,20 @@ class ProviderController extends Controller
         $provider->delete();
         return back()->with('success', 'Provider deleted.');
     }
+
+    public function syncBalances()
+    {
+        try {
+            $smsService = app(\App\Services\SmsService::class);
+            $balances = $smsService->getProviderBalances();
+            
+            // Optional: Update SystemCredit cache/log if needed
+            // For now, simpler is better: just fetching them verifies connectivity
+            
+            $count = count($balances);
+            return back()->with('success', "Synced balances from {$count} active provider(s).");
+        } catch (\Exception $e) {
+            return back()->with('error', 'Failed to sync balances: ' . $e->getMessage());
+        }
+    }
 }
