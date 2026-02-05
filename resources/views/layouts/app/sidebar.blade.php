@@ -118,7 +118,7 @@
             </nav>
 
             <!-- Developer Section -->
-            <div class="mb-2 px-4 text-[10px] font-extrabold text-white/20 uppercase tracking-[0.2em]">
+            {{-- <div class="mb-2 px-4 text-[10px] font-extrabold text-white/20 uppercase tracking-[0.2em]">
                 Developer
             </div>
             <nav class="space-y-1 mb-8">
@@ -140,7 +140,7 @@
                         class="w-4 h-4 {{ request()->routeIs('developer.webhooks') ? 'sidebar-item-active' : 'group-hover:text-indigo-brand' }}"></i>
                     <span class="text-sm font-semibold">Webhooks</span>
                 </a>
-            </nav>
+            </nav> --}}
 
             <!-- Account Section -->
             <div class="mb-2 px-4 text-[10px] font-extrabold text-white/20 uppercase tracking-[0.2em]">
@@ -152,12 +152,6 @@
                     <i data-lucide="settings"
                         class="w-4 h-4 {{ request()->routeIs('profile.edit') ? 'text-indigo-brand' : 'group-hover:text-indigo-brand' }}"></i>
                     <span class="text-sm font-semibold">Settings</span>
-                </a>
-                <a href="{{ route('two-factor.show') }}"
-                    class="flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 group {{ request()->routeIs('two-factor.show') ? 'sidebar-item-active' : 'hover:bg-white/5 hover:text-white' }}">
-                    <i data-lucide="shield-check"
-                        class="w-4 h-4 {{ request()->routeIs('two-factor.show') ? 'text-indigo-brand' : 'group-hover:text-indigo-brand' }}"></i>
-                    <span class="text-sm font-semibold">Security</span>
                 </a>
                 @if(auth()->user()->isTenantAdmin())
                     <a href="{{ route('settings.team') }}"
