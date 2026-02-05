@@ -129,6 +129,24 @@
 
     <script>
         lucide.createIcons();
+
+        // Re-initialize icons after Livewire updates
+        // Re-initialize icons after Livewire updates
+        document.addEventListener('livewire:navigated', () => {
+            lucide.createIcons();
+        });
+        document.addEventListener('livewire:initialized', () => {
+            lucide.createIcons();
+
+            // Hook into livewire commits if needed for partial updates
+            Livewire.hook('morph.updated', ({ el, component }) => {
+                lucide.createIcons();
+            });
+        });
+        // Fallback for classic Livewire updates
+        document.addEventListener('livewire:load', () => {
+            lucide.createIcons();
+        });
     </script>
     {!! \Devrabiul\ToastMagic\Facades\ToastMagic::scripts() !!}
 </body>
