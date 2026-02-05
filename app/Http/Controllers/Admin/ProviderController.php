@@ -27,7 +27,6 @@ class ProviderController extends Controller
             'token' => 'nullable|required_if:provider,twilio|string',
             'from' => 'nullable|required_if:provider,twilio|string',
             'key' => 'nullable|required_if:provider,mnotify|string',
-            'sender_id' => 'nullable|required_if:provider,mnotify|string',
         ]);
 
         $config = [];
@@ -40,7 +39,6 @@ class ProviderController extends Controller
         } elseif ($validated['provider'] === 'mnotify') {
             $config = [
                 'key' => $request->key,
-                'sender_id' => $request->sender_id,
             ];
         }
 

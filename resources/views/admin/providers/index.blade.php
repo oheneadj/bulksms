@@ -137,14 +137,7 @@
                                         @error('key') <span class="text-xs text-red-600 mt-1 block">{{ $message }}</span> @enderror
                                     </div>
                                     <div>
-                                        <label class="block text-xs font-bold text-zinc-600 mb-2">Default Sender ID</label>
-                                        <input type="text" name="sender_id" value="{{ old('sender_id') }}" placeholder="e.g. MyBrand"
-                                            class="w-full rounded-lg border-zinc-200 bg-zinc-50/50 px-3 py-2.5 text-sm focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-sm transition-all outline-none @error('sender_id') border-red-300 bg-red-50/50 @enderror">
-                                        <p class="text-[10px] text-zinc-400 mt-1.5 flex items-center gap-1">
-                                            <i data-lucide="info" class="w-3 h-3"></i>
-                                            Must be locally approved on mNotify first
-                                        </p>
-                                        @error('sender_id') <span class="text-xs text-red-600 mt-1 block">{{ $message }}</span> @enderror
+                                        <p class="text-sm text-zinc-600 mb-2">Sender ID is managed within the app or default account settings.</p>
                                     </div>
                                 </div>
                             </div>
