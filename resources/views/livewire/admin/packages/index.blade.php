@@ -30,12 +30,17 @@
         <div class="bg-white p-6 rounded-xl border border-zinc-200 shadow-sm flex flex-col justify-between">
             <div>
                 <h3 class="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Actions</h3>
-                <p class="text-sm text-zinc-600">Purchase more credits from your provider, then update here.</p>
+                <p class="text-sm text-zinc-600">Sync stored credits directly from your active SMS gateways.</p>
             </div>
-            <button wire:click="openRestockModal"
-                class="mt-4 w-full bg-zinc-900 hover:bg-zinc-800 text-white font-bold py-2 px-4 rounded-lg transition-all">
-                Restock Inventory
-            </button>
+            <form action="{{ route('admin.providers.sync-balances') }}" method="POST">
+                @csrf
+                <button type="submit"
+                    class="mt-4 w-full bg-zinc-900 hover:bg-zinc-800 text-white font-bold py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2 group">
+                    <i data-lucide="refresh-cw"
+                        class="w-4 h-4 group-hover:rotate-180 transition-transform duration-500"></i>
+                    Sync Inventory
+                </button>
+            </form>
         </div>
     </div>
 
@@ -141,7 +146,8 @@
             <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
                 <div class="p-6 border-b border-zinc-100 flex justify-between items-center">
                     <h3 class="text-lg font-extrabold text-zinc-900">
-                        {{ $editingPackageId ? 'Edit Package' : 'Create Package' }}</h3>
+                        {{ $editingPackageId ? 'Edit Package' : 'Create Package' }}
+                    </h3>
                     <button wire:click="$set('showPackageModal', false)" class="text-zinc-400 hover:text-zinc-600">
                         <i data-lucide="x" class="w-5 h-5"></i>
                     </button>

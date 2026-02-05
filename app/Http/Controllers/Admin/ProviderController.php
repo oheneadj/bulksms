@@ -73,11 +73,23 @@ class ProviderController extends Controller
             $smsService = app(\App\Services\SmsService::class);
             $balances = $smsService->getProviderBalances();
             
-            // Optional: Update SystemCredit cache/log if needed
-            // For now, simpler is better: just fetching them verifies connectivity
+            $totalBalance = 0;
+            foreach ($balances as $provider => $data) {
+                // Ensure we handle different currency values if needed, but for now assume credits
+                $totalBalance += (float) ($data['balance'] ?? 0);
+            }
+
+            // Update System Credit Inventory
+            $inventory = \App\Models\SystemCredit::firstOrCreate([]);
+            $inventory->balance = $totalBalance;
+            // logic check: 'total_purchased' usually implies historical total. 
+            // If we are syncing "current available", we might just want to update 'balance'.
+            // Updating 'total_purchased' on every sync might be incorrect if it accumulates.
+            // For now, we sync the *current available balance* to the 'balance' field.
+            $inventory->save();
             
             $count = count($balances);
-            return back()->with('success', "Synced balances from {$count} active provider(s).");
+            return back()->with('success', "Synced balances from {$count} active provider(s). System Inventory updated to {$totalBalance}.");
         } catch (\Exception $e) {
             return back()->with('error', 'Failed to sync balances: ' . $e->getMessage());
         }
